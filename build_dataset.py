@@ -114,7 +114,7 @@ if (__name__ == "__main__"):
     towns = getTowns(towns_file)
     results = getElectionResults(elections_file, parties, towns)
     # Don't want parties with 0 votes.
-    results = [x for x in results if x.votes > 0]
+    results = [x for x in results if int(x.votes) > 0]
 
     # Save as CSV for analysis with R.
     if not os.path.isdir('data'):
