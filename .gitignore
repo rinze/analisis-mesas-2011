@@ -2,3 +2,5 @@ data/
 .Rproj.user
 .Rhistory
 *.Rproj
+__pycache__
+.ipynb_checkpoints
