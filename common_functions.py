@@ -34,7 +34,8 @@ def get_election_results(election_file_handler, parties_dict,
         prov_code = line[11:13].decode("ascii")
         town_code = line[13:16].decode("ascii")
 
-        if prov_code == filter_prov_code and town_code == filter_town_code:
+        if (not filter_prov_code and not filter_town_code) or \
+            (prov_code == filter_prov_code and town_code == filter_town_code):
             dist_code = line[16:18].decode("ascii")
             section_code = line[18:21].decode("ascii")
             table_code = line[22:23].decode("ascii")
@@ -74,3 +75,73 @@ def process_election(zip_file_path, filter_prov_code = '28', filter_town_code = 
                                                filter_prov_code, filter_town_code)
                     
     return res
+
+def find_suspicious(eldata):
+    """Finds suspicious results in the provided df (already filtered by province 
+    / town).
+    """
+
+    # Total at the ballot box level
+    eldata_total = eldata.groupby(['section_code', 'table_code', 'dist_code'])\
+	.agg({'votes': 'sum'})\
+	.rename(columns = {'votes': 'total_votes'})\
+	.reset_index()
+    n = eldata_total.shape[0]
+    eldata = pd.merge(eldata, eldata_total)
+    eldata['pct_votes'] = eldata['votes'] / eldata['total_votes']
+
+    # Average at the party level
+    eldata_stats = eldata.groupby('party_name')\
+	.agg({'pct_votes': 'mean'})\
+	.rename(columns = {'pct_votes': 'mean'})\
+	.reset_index()
+    eldata_stats['threshold'] = 20 * eldata_stats['mean']
+    eldata_with_stats = pd.merge(eldata, eldata_stats)
+
+    bad_data = eldata_with_stats.loc[(eldata_with_stats['pct_votes'] > eldata_with_stats['threshold']) & (eldata_with_stats['votes'] > 20), :]\
+	.groupby(['dist_code', 'section_code', 'table_code'])\
+	.agg({'pct_votes': 'count'})\
+	.rename(columns = {'pct_votes': 'bad_counts'})\
+	.reset_index()\
+	.sort_values('bad_counts', ascending = False)
+
+    # Total ballot boxes
+    return bad_data, n
+
+def find_suspicious_2(eldata):
+    """Better method than the previous one.
+
+    For this one, we return ballot boxes in which a party that had less than 2 % 
+    of the vote, on average, has more than 5 %. This should be enough reason to 
+    inspect these results.
+    """
+
+    # Total at the ballot box level
+    eldata_total = eldata.groupby(['section_code', 'table_code', 'dist_code'])\
+	.agg({'votes': 'sum'})\
+	.rename(columns = {'votes': 'total_votes'})\
+	.reset_index()
+    n = eldata_total.shape[0]
+    eldata = pd.merge(eldata, eldata_total)
+    eldata['pct_votes'] = eldata['votes'] / eldata['total_votes']
+
+    # Average at the party level
+    party_average = eldata.groupby('party_name')\
+	.agg({'pct_votes': 'mean'})\
+	.rename(columns = {'pct_votes': 'mean'})\
+	.reset_index()
+
+    party_average = party_average.loc[party_average['mean'] < 0.02, :]
+    print(party_average)
+
+    bad_data = pd.merge(eldata, party_average, how = "inner")\
+        .loc[(eldata['pct_votes'] > 0.05), :]\
+	.groupby(['dist_code', 'section_code', 'table_code'])\
+	.agg({'pct_votes': 'count'})\
+	.rename(columns = {'pct_votes': 'bad_counts'})\
+	.reset_index()\
+	.sort_values('bad_counts', ascending = False)
+
+    print(bad_data.head())
+
+    return bad_data, n
